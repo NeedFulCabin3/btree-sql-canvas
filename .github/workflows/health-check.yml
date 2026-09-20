@@ -1,0 +1,29 @@
+name: Repository Health Check
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate-code:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate Index File Presence
+        run: |
+          if [ ! -f "index.html" ]; then
+            echo "Error: index.html missing from root directory."
+            exit 1
+          fi
+
+      - name: Lint HTML Structure
+        run: npx htmlhint index.html
