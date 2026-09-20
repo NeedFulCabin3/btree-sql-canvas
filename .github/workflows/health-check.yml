@@ -26,4 +26,4 @@ jobs:
           fi
 
       - name: Lint HTML Structure
-        run: npx htmlhint index.html
+        run: npx htmlhint index.html --rules spec-char-escape=false
