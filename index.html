@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chroma Studio & In-Memory B-Tree DB</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        cream: '#FDFBF7',
+                        sand: '#F4EFE6',
+                        warmBorder: '#E6DEC9',
+                        terracotta: '#D96B43',
+                        terracottaHover: '#C25A34',
+                        amberAccent: '#E5A93C',
+                        charcoal: '#2C2A29'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #FDFBF7;
+            color: #2C2A29;
+        }
+        code, pre, .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #F4EFE6;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #D96B43;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+    <header class="max-w-7xl mx-auto mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-warmBorder pb-4">
+        <div>
+            <h1 class="text-2xl font-bold text-charcoal flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full bg-terracotta inline-block"></span>
+                ChromaVision & B-Tree DB Engine
+            </h1>
+            <p class="text-sm text-gray-600 mt-1">Real-Time Green Screen Chroma Keying with In-Browser Indexed SQL Database</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <span class="text-xs px-3 py-1 rounded-full bg-sand font-medium border border-warmBorder text-charcoal">
+                Engine Status: <span id="dbStatus" class="text-emerald-600 font-semibold">Active (M=3 B-Tree)</span>
+            </span>
+        </div>
+    </header>
+
+    <!-- MAIN APP WRAPPER -->
+    <main class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- LEFT COLUMN: VIDEO & CHROMA KEY CONTROLS -->
+        <section class="lg:col-span-6 flex flex-col gap-4">
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-warmBorder">
+                <div class="flex justify-between items-center mb-3">
+                    <h2 class="font-semibold text-charcoal text-lg flex items-center gap-2">
+                        <svg class="w-5 h-5 text-terracotta" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                        Video Processing Canvas
+                    </h2>
+                    <span id="fpsCounter" class="text-xs mono bg-sand px-2 py-0.5 rounded text-gray-700">0 FPS</span>
+                </div>
+
+                <!-- Video Viewports -->
+                <div class="relative w-full aspect-video rounded-xl bg-sand overflow-hidden border border-warmBorder mb-4 shadow-inner flex items-center justify-center">
+                    <video id="webcamVideo" class="hidden" playsinline muted></video>
+                    <canvas id="procCanvas" class="w-full h-full object-cover"></canvas>
+                    
+                    <div id="videoPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center text-gray-500 bg-sand/80 p-4 text-center">
+                        <svg class="w-12 h-12 mb-2 text-terracotta opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                        <p class="text-sm font-medium">Select source below to start camera or test stream</p>
+                    </div>
+                </div>
+
+                <!-- Input Controls & Actions -->
+                <div class="space-y-4">
+                    <div class="flex flex-wrap gap-2">
+                        <button id="startCamBtn" class="px-4 py-2 bg-terracotta hover:bg-terracottaHover text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 shadow-sm">
+                            📷 Start Webcam
+                        </button>
+                        <button id="startDemoBtn" class="px-4 py-2 bg-sand hover:bg-warmBorder text-charcoal text-sm font-medium rounded-lg transition-colors border border-warmBorder">
+                            🎞️ Demo Animation
+                        </button>
+                        <button id="snapLogBtn" class="px-4 py-2 bg-amberAccent hover:opacity-90 text-white text-sm font-medium rounded-lg transition-colors ml-auto shadow-sm flex items-center gap-1.5">
+                            📸 Snapshot & DB Log
+                        </button>
+                    </div>
+
+                    <!-- Chroma Keying Settings -->
+                    <div class="p-4 bg-cream rounded-xl border border-warmBorder/60 space-y-3">
+                        <h3 class="text-xs font-bold uppercase tracking-wider text-gray-500">Chroma Key Controls</h3>
+                        
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-xs font-medium text-gray-700 flex justify-between">
+                                    Target Key Color
+                                    <span id="colorHexText" class="mono text-terracotta font-semibold">#00FF00</span>
+                                </label>
+                                <div class="flex gap-2 items-center mt-1">
+                                    <input type="color" id="keyColor" value="#00FF00" class="w-9 h-9 rounded cursor-pointer border-0 bg-transparent">
+                                    <button id="presetGreen" class="text-xs bg-emerald-100 hover:bg-emerald-200 text-emerald-800 px-2 py-1 rounded">Green</button>
+                                    <button id="presetBlue" class="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-2 py-1 rounded">Blue</button>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="text-xs font-medium text-gray-700 flex justify-between">
+                                    Background Fill
+                                </label>
+                                <div class="flex gap-2 items-center mt-1">
+                                    <select id="bgMode" class="text-xs border border-warmBorder rounded-lg px-2 py-2 bg-white text-gray-800 w-full focus:outline-none">
+                                        <option value="color">Solid Color</option>
+                                        <option value="gradient">Warm Sunset Gradient</option>
+                                        <option value="pattern">Studio Grid</option>
+                                    </select>
+                                    <input type="color" id="bgColor" value="#F4EFE6" class="w-9 h-9 rounded cursor-pointer border-0 bg-transparent">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                            <div>
+                                <label class="text-xs font-medium text-gray-700 flex justify-between">
+                                    Tolerance Range
+                                    <span id="tolVal" class="mono text-gray-600">80</span>
+                                </label>
+                                <input type="range" id="tolerance" min="5" max="200" value="80" class="w-full accent-terracotta mt-1">
+                            </div>
+                            <div>
+                                <label class="text-xs font-medium text-gray-700 flex justify-between">
+                                    Edge Smoothness
+                                    <span id="smoothVal" class="mono text-gray-600">20</span>
+                                </label>
+                                <input type="range" id="smoothness" min="0" max="100" value="20" class="w-full accent-terracotta mt-1">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- RIGHT COLUMN: IN-MEMORY B-TREE DATABASE ENGINE & SQL CONSOLE -->
+        <section class="lg:col-span-6 flex flex-col gap-4">
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-warmBorder flex flex-col h-full">
+                <div class="flex justify-between items-center mb-3">
+                    <h2 class="font-semibold text-charcoal text-lg flex items-center gap-2">
+                        <svg class="w-5 h-5 text-terracotta" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s8-1.79 8-4"></path></svg>
+                        In-Memory B-Tree Database SQL Console
+                    </h2>
+                    <span class="text-xs text-gray-500">Indexed Engine</span>
+                </div>
+
+                <!-- Quick Query Presets -->
+                <div class="flex flex-wrap gap-1.5 mb-3">
+                    <button id="btnQuerySelectAll" class="text-xs px-2.5 py-1 bg-sand hover:bg-warmBorder text-charcoal rounded-md transition-colors border border-warmBorder">
+                        SELECT ALL
+                    </button>
+                    <button id="btnQueryRecent" class="text-xs px-2.5 py-1 bg-sand hover:bg-warmBorder text-charcoal rounded-md transition-colors border border-warmBorder">
+                        WHERE id > 2
+                    </button>
+                    <button id="btnQueryInsertManual" class="text-xs px-2.5 py-1 bg-sand hover:bg-warmBorder text-charcoal rounded-md transition-colors border border-warmBorder">
+                        INSERT sample
+                    </button>
+                    <button id="btnQueryClear" class="text-xs px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 rounded-md transition-colors border border-red-200 ml-auto">
+                        Clear DB
+                    </button>
+                </div>
+
+                <!-- Query Input Terminal -->
+                <div class="relative mb-3">
+                    <textarea id="sqlInput" rows="3" class="w-full p-3 bg-cream border border-warmBorder rounded-xl text-sm mono focus:outline-none focus:ring-2 focus:ring-terracotta text-charcoal resize-none" placeholder="Enter SQL command here e.g. SELECT * FROM snapshots WHERE id = 1"></textarea>
+                    <button id="runSqlBtn" class="absolute bottom-3 right-3 px-3 py-1.5 bg-terracotta hover:bg-terracottaHover text-white text-xs font-semibold rounded-lg shadow-sm transition-colors">
+                        Execute SQL
+                    </button>
+                </div>
+
+                <!-- Query Execution Output Metadata -->
+                <div id="queryStats" class="text-xs mono bg-sand/60 border border-warmBorder p-2.5 rounded-lg mb-4 flex flex-wrap justify-between text-gray-700">
+                    <span>Rows Returned: <strong id="statRows" class="text-charcoal">0</strong></span>
+                    <span>Search Time: <strong id="statTime" class="text-charcoal">0.00 ms</strong></span>
+                    <span>B-Tree Height: <strong id="statDepth" class="text-charcoal">1</strong></span>
+                </div>
+
+                <!-- SQL Output Data Table -->
+                <div class="flex-1 overflow-x-auto border border-warmBorder rounded-xl min-h-[160px] max-h-[220px]">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-sand text-charcoal sticky top-0 border-b border-warmBorder">
+                            <tr id="tableHead">
+                                <th class="p-2.5">id</th>
+                                <th class="p-2.5">timestamp</th>
+                                <th class="p-2.5">key_color</th>
+                                <th class="p-2.5">tolerance</th>
+                                <th class="p-2.5">label</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody" class="divide-y divide-warmBorder/40 bg-white mono">
+                            <tr>
+                                <td colspan="5" class="p-4 text-center text-gray-400 italic">No queries executed yet or table is empty.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Visual B-Tree Inspector -->
+                <div class="mt-4 pt-3 border-t border-warmBorder">
+                    <div class="flex justify-between items-center mb-1.5">
+                        <h4 class="text-xs font-bold uppercase tracking-wider text-gray-500">Live B-Tree Index Hierarchy (Degree M=3)</h4>
+                        <span class="text-[10px] text-gray-400">Primary Key Index [id]</span>
+                    </div>
+                    <div id="btreeVisualizer" class="p-3 bg-cream border border-warmBorder rounded-xl min-h-[90px] text-xs mono overflow-x-auto text-charcoal flex items-center justify-center">
+                        <span class="text-gray-400 italic">[Empty Tree Index]</span>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+    </main>
+
+    <!-- JS CODE ARCHITECTURE -->
+    <script>
+        // ============================================================================
+        // 1. CUSTOM IN-MEMORY B-TREE DATA STRUCTURE ENGINE
+        // ============================================================================
+
+        class BTreeNode {
+            constructor(isLeaf = true) {
+                this.isLeaf = isLeaf;
+                this.keys = [];      // Array of indexing keys (e.g. integer IDs)
+                this.data = [];      // Array of associated records corresponding to keys
+                this.children = [];  // Pointer array to child nodes
+            }
+        }
+
+        class BTree {
+            constructor(t = 2) { 
+                // t is min degree. Degree M = 2*t - 1. For t=2, max keys = 3 (2t-1)
+                this.root = new BTreeNode(true);
+                this.t = t;
+            }
+
+            // Search for key in B-Tree
+            search(node, key) {
+                let i = 0;
+                while (i < node.keys.length && key > node.keys[i]) {
+                    i++;
+                }
+                if (i < node.keys.length && key === node.keys[i]) {
+                    return { node, index: i, record: node.data[i] };
+                }
+                if (node.isLeaf) {
+                    return null;
+                }
+                return this.search(node.children[i], key);
+            }
+
+            // Insert key and record into B-Tree
+            insert(key, record) {
+                const root = this.root;
+                if (root.keys.length === (2 * this.t - 1)) {
+                    const s = new BTreeNode(false);
+                    this.root = s;
+                    s.children.push(root);
+                    this.splitChild(s, 0, root);
+                    this.insertNonFull(s, key, record);
+                } else {
+                    this.insertNonFull(root, key, record);
+                }
+            }
+
+            insertNonFull(node, key, record) {
+                let i = node.keys.length - 1;
+                if (node.isLeaf) {
+                    while (i >= 0 && key < node.keys[i]) {
+                        node.keys[i + 1] = node.keys[i];
+                        node.data[i + 1] = node.data[i];
+                        i--;
+                    }
+                    node.keys[i + 1] = key;
+                    node.data[i + 1] = record;
+                } else {
+                    while (i >= 0 && key < node.keys[i]) {
+                        i--;
+                    }
+                    i++;
+                    if (node.children[i].keys.length === (2 * this.t - 1)) {
+                        this.splitChild(node, i, node.children[i]);
+                        if (key > node.keys[i]) {
+                            i++;
+                        }
+                    }
+                    this.insertNonFull(node.children[i], key, record);
+                }
+            }
+
+            splitChild(parent, i, child) {
+                const t = this.t;
+                const newNode = new BTreeNode(child.isLeaf);
+                
+                // Copy right half keys & data
+                newNode.keys = child.keys.splice(t);
+                newNode.data = child.data.splice(t);
+
+                if (!child.isLeaf) {
+                    newNode.children = child.children.splice(t);
+                }
+
+                // Middle key moves up to parent
+                const medianKey = child.keys.pop();
+                const medianData = child.data.pop();
+
+                parent.children.splice(i + 1, 0, newNode);
+                parent.keys.splice(i, 0, medianKey);
+                parent.data.splice(i, 0, medianData);
+            }
+
+            // Get tree height metrics
+            getHeight(node = this.root) {
+                if (node.isLeaf) return 1;
+                return 1 + this.getHeight(node.children[0]);
+            }
+
+            // Traverse and collect all items in sorted key order
+            traverse(node = this.root, results = []) {
+                let i;
+                for (i = 0; i < node.keys.length; i++) {
+                    if (!node.isLeaf) {
+                        this.traverse(node.children[i], results);
+                    }
+                    results.push(node.data[i]);
+                }
+                if (!node.isLeaf) {
+                    this.traverse(node.children[i], results);
+                }
+                return results;
+            }
+
+            // Remove all entries
+            clear() {
+                this.root = new BTreeNode(true);
+            }
+        }
+
+        // ============================================================================
+        // 2. IN-MEMORY DATABASE & SQL PARSER ENGINE
+        // ============================================================================
+
+        class SimpleDatabaseEngine {
+            constructor() {
+                this.index = new BTree(2); // Order 3 B-tree (t=2)
+                this.autoIncrementId = 1;
+                this.tableName = "snapshots";
+                this.loadFromStorage();
+            }
+
+            // Sync with browser localStorage
+            saveToStorage() {
+                const records = this.index.traverse();
+                localStorage.setItem("chroma_db_data", JSON.stringify(records));
+                localStorage.setItem("chroma_db_autoid", this.autoIncrementId.toString());
+            }
+
+            loadFromStorage() {
+                try {
+                    const raw = localStorage.getItem("chroma_db_data");
+                    const autoId = localStorage.getItem("chroma_db_autoid");
+                    if (raw) {
+                        const records = JSON.parse(raw);
+                        records.forEach(r => {
+                            this.index.insert(Number(r.id), r);
+                        });
+                        if (autoId) this.autoIncrementId = parseInt(autoId, 10);
+                    } else {
+                        // Seed default values
+                        this.insertRecord({
+                            timestamp: new Date().toLocaleTimeString(),
+                            key_color: "#00FF00",
+                            tolerance: 80,
+                            label: "Initial Test Snapshot"
+                        });
+                    }
+                } catch(e) {
+                    console.warn("Storage restoration error:", e);
+                }
+            }
+
+            insertRecord(record) {
+                const id = this.autoIncrementId++;
+                const newRecord = { id, ...record };
+                this.index.insert(id, newRecord);
+                this.saveToStorage();
+                return newRecord;
+            }
+
+            // Handcrafted lightweight SQL parser
+            executeSQL(queryStr) {
+                const startTime = performance.now();
+                const cleanQuery = queryStr.trim();
+                const tokens = cleanQuery.split(/\s+/);
+                const command = tokens[0]?.toUpperCase();
+
+                let results = [];
+
+                if (command === "SELECT") {
+                    const whereIdx = tokens.findIndex(t => t.toUpperCase() === "WHERE");
+                    if (whereIdx !== -1) {
+                        const field = tokens[whereIdx + 1];
+                        const operator = tokens[whereIdx + 2];
+                        const val = parseInt(tokens[whereIdx + 3], 10);
+
+                        if (field === "id" && operator === "=") {
+                            // Direct B-Tree key lookup optimization
+                            const hit = this.index.search(this.index.root, val);
+                            if (hit) results = [hit.record];
+                        } else {
+                            // Full tree traversal with scan filtering
+                            const all = this.index.traverse();
+                            results = all.filter(r => {
+                                if (operator === ">") return r[field] > val;
+                                if (operator === "<") return r[field] < val;
+                                if (operator === "=") return r[field] == val;
+                                return true;
+                            });
+                        }
+                    } else {
+                        results = this.index.traverse();
+                    }
+                } 
+                else if (command === "INSERT") {
+                    // Primitive parser for custom INSERT string
+                    const defaultRecord = {
+                        timestamp: new Date().toLocaleTimeString(),
+                        key_color: "#00FF00",
+                        tolerance: 85,
+                        label: "Manual SQL Insert"
+                    };
+                    const inserted = this.insertRecord(defaultRecord);
+                    results = [inserted];
+                }
+                else if (command === "DELETE" || command === "CLEAR") {
+                    this.index.clear();
+                    this.autoIncrementId = 1;
+                    this.saveToStorage();
+                    results = [];
+                }
+
+                const executionTime = (performance.now() - startTime).toFixed(2);
+                return {
+                    data: results,
+                    timeMs: executionTime,
+                    treeDepth: this.index.getHeight(),
+                    totalCount: results.length
+                };
+            }
+        }
+
+        // Initialize DB Global Instance
+        const db = new SimpleDatabaseEngine();
+
+        // ============================================================================
+        // 3. REAL-TIME CHROMA KEY / VIDEO CANVAS ENGINE
+        // ============================================================================
+
+        const video = document.getElementById('webcamVideo');
+        const canvas = document.getElementById('procCanvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        
+        let isProcessing = false;
+        let lastFrameTime = performance.now();
+        let frameCount = 0;
+        let demoAnimAngle = 0;
+        let useDemoSource = false;
+
+        // UI Controls elements
+        const keyColorInput = document.getElementById('keyColor');
+        const colorHexText = document.getElementById('colorHexText');
+        const toleranceInput = document.getElementById('tolerance');
+        const smoothnessInput = document.getElementById('smoothness');
+        const tolVal = document.getElementById('tolVal');
+        const smoothVal = document.getElementById('smoothVal');
+        const bgModeSelect = document.getElementById('bgMode');
+        const bgColorInput = document.getElementById('bgColor');
+        const fpsCounter = document.getElementById('fpsCounter');
+        const placeholder = document.getElementById('videoPlaceholder');
+
+        // Hex to RGB parser
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16)
+            } : { r: 0, g: 255, b: 0 };
+        }
+
+        // Start Webcam Stream
+        document.getElementById('startCamBtn').addEventListener('click', async () => {
+            try {
+                useDemoSource = false;
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 360 } });
+                video.srcObject = stream;
+                video.play();
+                placeholder.classList.add('hidden');
+                if (!isProcessing) {
+                    isProcessing = true;
+                    requestAnimationFrame(processVideoFrame);
+                }
+            } catch (err) {
+                alert("Camera access denied or unavailable. Switching to demo stream.");
+                startDemoStream();
+            }
+        });
+
+        // Synthetic Video Source Stream (For test/demo without camera)
+        function startDemoStream() {
+            useDemoSource = true;
+            placeholder.classList.add('hidden');
+            if (!isProcessing) {
+                isProcessing = true;
+                requestAnimationFrame(processVideoFrame);
+            }
+        }
+
+        document.getElementById('startDemoBtn').addEventListener('click', startDemoStream);
+
+        // Core Chroma Key Canvas Processing Loop
+        function processVideoFrame(now) {
+            if (!isProcessing) return;
+
+            // Calculate FPS
+            frameCount++;
+            if (now - lastFrameTime >= 1000) {
+                fpsCounter.textContent = `${frameCount} FPS`;
+                frameCount = 0;
+                lastFrameTime = now;
+            }
+
+            const width = canvas.width = 640;
+            const height = canvas.height = 360;
+
+            // 1. Draw source
+            if (useDemoSource) {
+                // Generate dynamic animated scene with green object
+                ctx.fillStyle = '#1e1e1e';
+                ctx.fillRect(0, 0, width, height);
+
+                demoAnimAngle += 0.03;
+                const cx = width / 2 + Math.sin(demoAnimAngle) * 120;
+                const cy = height / 2 + Math.cos(demoAnimAngle * 0.8) * 60;
+
+                // Moving Green Ball (Chroma target)
+                ctx.beginPath();
+                ctx.arc(cx, cy, 65, 0, Math.PI * 2);
+                ctx.fillStyle = keyColorInput.value; // Target color
+                ctx.fill();
+
+                // Non-green foreground actor item inside sphere
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 20px sans-serif';
+                ctx.fillText("ACTOR", cx - 35, cy + 7);
+            } else if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                ctx.drawImage(video, 0, 0, width, height);
+            }
+
+            // 2. Fetch raw pixel buffers
+            const frame = ctx.getImageData(0, 0, width, height);
+            const data = frame.data;
+            const targetRgb = hexToRgb(keyColorInput.value);
+            const tol = parseFloat(toleranceInput.value);
+            const smooth = parseFloat(smoothnessInput.value);
+
+            // 3. Process Pixel Buffer (Chroma Key Algorithm)
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+
+                // Euclidean color distance metric
+                const diff = Math.sqrt(
+                    (r - targetRgb.r) ** 2 +
+                    (g - targetRgb.g) ** 2 +
+                    (b - targetRgb.b) ** 2
+                );
+
+                if (diff < tol) {
+                    data[i + 3] = 0; // Completely transparent
+                } else if (diff < tol + smooth) {
+                    // Smooth alpha edge transition
+                    const alpha = ((diff - tol) / smooth) * 255;
+                    data[i + 3] = alpha;
+                }
+            }
+
+            // 4. Render back replaced background
+            ctx.save();
+            ctx.putImageData(frame, 0, 0);
+
+            // Composite replacing background underneath transparent pixels
+            ctx.globalCompositeOperation = 'destination-over';
+            
+            const bgMode = bgModeSelect.value;
+            if (bgMode === 'color') {
+                ctx.fillStyle = bgColorInput.value;
+                ctx.fillRect(0, 0, width, height);
+            } else if (bgMode === 'gradient') {
+                const grad = ctx.createLinearGradient(0, 0, width, height);
+                grad.addColorStop(0, '#D96B43');
+                grad.addColorStop(1, '#E5A93C');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, width, height);
+            } else if (bgMode === 'pattern') {
+                ctx.fillStyle = '#F4EFE6';
+                ctx.fillRect(0, 0, width, height);
+                ctx.strokeStyle = '#E6DEC9';
+                ctx.lineWidth = 2;
+                for (let x = 0; x < width; x += 30) {
+                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
+                }
+                for (let y = 0; y < height; y += 30) {
+                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
+                }
+            }
+
+            ctx.restore();
+
+            requestAnimationFrame(processVideoFrame);
+        }
+
+        // Dynamic Input Syncing
+        keyColorInput.addEventListener('input', (e) => colorHexText.textContent = e.target.value.toUpperCase());
+        toleranceInput.addEventListener('input', (e) => tolVal.textContent = e.target.value);
+        smoothnessInput.addEventListener('input', (e) => smoothVal.textContent = e.target.value);
+
+        document.getElementById('presetGreen').addEventListener('click', () => {
+            keyColorInput.value = "#00FF00";
+            colorHexText.textContent = "#00FF00";
+        });
+        document.getElementById('presetBlue').addEventListener('click', () => {
+            keyColorInput.value = "#0000FF";
+            colorHexText.textContent = "#0000FF";
+        });
+
+        // Log snapshot into database
+        document.getElementById('snapLogBtn').addEventListener('click', () => {
+            const record = {
+                timestamp: new Date().toLocaleTimeString(),
+                key_color: keyColorInput.value,
+                tolerance: parseInt(toleranceInput.value, 10),
+                label: `Frame Snapshot ${Date.now().toString().slice(-4)}`
+            };
+            db.insertRecord(record);
+            refreshUI('SELECT * FROM snapshots');
+        });
+
+        // ============================================================================
+        // 4. UI DATA RENDERERS AND TREE VISUALIZER
+        // ============================================================================
+
+        const sqlInput = document.getElementById('sqlInput');
+        const tableBody = document.getElementById('tableBody');
+        const statRows = document.getElementById('statRows');
+        const statTime = document.getElementById('statTime');
+        const statDepth = document.getElementById('statDepth');
+        const treeVisualizer = document.getElementById('btreeVisualizer');
+
+        function refreshUI(sqlQuery = 'SELECT * FROM snapshots') {
+            sqlInput.value = sqlQuery;
+            const res = db.executeSQL(sqlQuery);
+
+            // Update Statistics
+            statRows.textContent = res.totalCount;
+            statTime.textContent = `${res.timeMs} ms`;
+            statDepth.textContent = res.treeDepth;
+
+            // Render Table Rows
+            if (res.data.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-400 italic">No matching records found.</td></tr>`;
+            } else {
+                tableBody.innerHTML = res.data.map(r => `
+                    <tr class="hover:bg-cream/80 transition-colors">
+                        <td class="p-2.5 font-bold text-terracotta">${r.id}</td>
+                        <td class="p-2.5 text-gray-700">${r.timestamp}</td>
+                        <td class="p-2.5">
+                            <span class="inline-block w-3 h-3 rounded-full border border-gray-300 align-middle mr-1" style="background:${r.key_color}"></span>
+                            <span class="text-xs">${r.key_color}</span>
+                        </td>
+                        <td class="p-2.5 text-gray-700">${r.tolerance}</td>
+                        <td class="p-2.5 text-gray-600">${r.label}</td>
+                    </tr>
+                `).join('');
+            }
+
+            // Render Recursive B-Tree Structure
+            renderBTreeGraph();
+        }
+
+        function renderBTreeGraph() {
+            const root = db.index.root;
+            if (!root || root.keys.length === 0) {
+                treeVisualizer.innerHTML = `<span class="text-gray-400 italic">[Empty B-Tree Index]</span>`;
+                return;
+            }
+
+            function buildNodeHTML(node) {
+                const keysStr = node.keys.join(' | ');
+                let html = `<div class="flex flex-col items-center mx-2">`;
+                html += `<div class="bg-white border-2 border-terracotta px-2.5 py-1 rounded-lg text-xs font-bold text-charcoal shadow-sm">
+                            [ ${keysStr} ]
+                         </div>`;
+
+                if (!node.isLeaf && node.children.length > 0) {
+                    html += `<div class="w-px h-3 bg-warmBorder my-1"></div>`;
+                    html += `<div class="flex items-start pt-1 border-t border-dashed border-warmBorder gap-2">`;
+                    node.children.forEach(child => {
+                        html += buildNodeHTML(child);
+                    });
+                    html += `</div>`;
+                }
+                html += `</div>`;
+                return html;
+            }
+
+            treeVisualizer.innerHTML = `<div class="flex justify-center p-2">${buildNodeHTML(root)}</div>`;
+        }
+
+        // SQL Buttons Listeners
+        document.getElementById('runSqlBtn').addEventListener('click', () => refreshUI(sqlInput.value));
+        document.getElementById('btnQuerySelectAll').addEventListener('click', () => refreshUI('SELECT * FROM snapshots'));
+        document.getElementById('btnQueryRecent').addEventListener('click', () => refreshUI('SELECT * FROM snapshots WHERE id > 2'));
+        document.getElementById('btnQueryInsertManual').addEventListener('click', () => {
+            db.insertRecord({
+                timestamp: new Date().toLocaleTimeString(),
+                key_color: "#0000FF",
+                tolerance: 90,
+                label: "Manual Query Insert"
+            });
+            refreshUI('SELECT * FROM snapshots');
+        });
+        document.getElementById('btnQueryClear').addEventListener('click', () => {
+            refreshUI('DELETE FROM snapshots');
+        });
+
+        // Initialize UI on startup
+        refreshUI('SELECT * FROM snapshots');
+    </script>
+</body>
+</html>
